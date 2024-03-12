@@ -608,16 +608,13 @@ public class LZMAInputStream extends InputStream {
      * the end of stream (EOS) marker is present. After calling this function,
      * both are allowed.
      * <p>
-     * Note that this doesn't actually check if the EOS marker is present.
-     * This introduces a few minor downsides:
-     * <ul>
-     *   <li>Some (not all!) streams that would have more data than
-     *   the specified uncompressed size, for example due to data corruption,
-     *   will be accepted as valid.</li>
-     *   <li>After <code>read</code> has returned <code>-1</code> the
-     *   input position might not be at the end of the stream (too little
-     *   input may have been read).</li>
-     * </ul>
+     * This feature was intrudced in XZ for Java 1.9 but it was more relaxed
+     * than it needed to be. It didn't actually check if the EOS marker was
+     * present, which made error detection slightly weaker than it needed
+     * to be. It also meant that after <code>read</code> had returned
+     * <code>-1</code>, the input position might not have been at
+     * the end of the stream (too little input may have been read).
+     * These problems were fixed in XZ for Java 1.10.
      * <p>
      * This should be called after the constructor before reading any data
      * from the stream. This is a separate function because adding even more
@@ -746,9 +743,55 @@ public class LZMAInputStream extends InputStream {
                     // or truncated .lzma files. LZMA Utils doesn't do
                     // the second check and thus it accepts many invalid
                     // files that this implementation and XZ Utils don't.
-                    if (lz.hasPending() || (!relaxedEndCondition
-                                            && !rc.isFinished()))
+                    if (lz.hasPending())
                         throw new CorruptedInputException();
+
+                    if (!rc.isFinished()) {
+                        // If uncompressed size isn't known, we must have
+                        // gotten here because the end marker was detected.
+                        // In that case the range decoder should have been
+                        // in the finished state. Since it wasn't, the input
+                        // is corrupt.
+                        //
+                        // If uncompressed size is known and the end marker
+                        // isn't allowed, the input is corrupt.
+                        if (remainingSize == -1 || !relaxedEndCondition)
+                            throw new CorruptedInputException();
+
+                        // Check if the end marker is present. We need to
+                        // allow the decoder to attempt to decode one more
+                        // output byte but it shouldn't produce any. Instead,
+                        // we should get an exception indicating that the
+                        // end marker was detected.
+                        lz.setLimit(1);
+
+                        boolean endMarkerDetected = false;
+
+                        try {
+                            lzma.decode();
+                        } catch (CorruptedInputException e) {
+                            if (!lzma.endMarkerDetected())
+                                throw e;
+
+                            endMarkerDetected = true;
+
+                            // The exception makes lzma.decode() miss the last
+                            // range decoder normalization, so do it here.
+                            rc.normalize();
+                        }
+
+                        // The end marker must have been detected.
+                        //
+                        // We had to allow decoding of one byte with
+                        // lz.setLimit but it must have not decoded any;
+                        // the end marker must have been the only LZMA symbol.
+                        //
+                        // The range decoder must now be in the finished
+                        // state after the above normalization.
+                        if (!endMarkerDetected || lz.hasPending()
+                                || !rc.isFinished())
+                            throw new CorruptedInputException();
+                    }
 
                     putArraysToCache();
                     return size == 0 ? -1 : size;
