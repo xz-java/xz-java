@@ -12,7 +12,7 @@
          a powerful tool widely used in Linux for file compression and decompression.
          This project brings the efficient LZMA2 compression algorithm to the Java platform,
         providing a high-performance, scalable solution for Java applications requiring data compression.</description>
-    <url>https://github.com/snake-yaml/snakeyaml</url>
+    <url>https://github.com/xz-java/xz-java</url>
     <scm>
         <connection>scm:git:https://github.com/xz-java/xz-java</connection>
         <url>https://github.com/xz-java/xz-java.git</url>
